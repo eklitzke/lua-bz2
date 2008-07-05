@@ -1,0 +1,8 @@
+A Lua binding to Julian Seward's libbzip2.
+
+This software is released under a BSD-style license (to be exact, the ISC
+license). The full license can be found in the LICENSE file included with this
+source code.
+
+More information about Lua: http://www.lua.org/
+More information about bzip2: http://www.bzip.org/
