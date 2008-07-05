@@ -1,12 +1,9 @@
 #include <bzlib.h>
-#include <string.h>
-#include <stdlib.h>
+#include <alloca.h>
 #include <stdio.h>
 #include <lua.h>
 #include <lauxlib.h>
 #include <lualib.h>
-
-#define BUFSIZE 4096
 
 typedef struct {
 	BZFILE *bz_stream;
@@ -45,7 +42,10 @@ int lbz_read(lua_State *L) {
 	luaL_Buffer b;
 	luaL_buffinit(L, &b);
 
-	char *buf = malloc(len);
+	/* Pendatic note -- alloca isn't ANSI compatible, so this isn't *really*
+	 * portable, but it is provided on Linux and BSD systems (including OS X).
+	 **/
+	char *buf = alloca(len);
 	int ret = BZ2_bzRead(&bzerror, state->bz_stream, buf, len);
 
 	if (bzerror != BZ_OK && bzerror != BZ_STREAM_END) {
