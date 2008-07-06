@@ -4,5 +4,10 @@ This software is released under a BSD-style license (to be exact, the ISC
 license). The full license can be found in the LICENSE file included with this
 source code.
 
+This has been tested with Lua 5.1 on Mac OS X (10.5) and Ubuntu. Getting this
+to work on Windows or with an earlier version of Lua is probably just a matter
+of massaging the Makefile. If this extension doesn't build for a platform
+you're using and you're able to fix the Makefile, please send me your patch.
+
 More information about Lua: http://www.lua.org/
 More information about bzip2: http://www.bzip.org/

@@ -1,17 +1,21 @@
 CC = gcc
 CFLAGS = -Os -Wall
-LDFLAGS = -lbz2 -llua
+LDFLAGS = -lbz2
 SOFLAGS = -fpic -shared
 
+# FIXME: Assumes you have GCC 4.4 installed for building on OS X
 ifeq ($(shell uname),Darwin)
 CC = gcc-mp-4.4
-CPPFLAGS = -I/opt/local/include
-LDFLAGS += -L/opt/local/lib
 endif
 
+ifeq ($(shell pkg-config --exists lua5.1; echo $$?),0)
+PFLAGS = $(shell pkg-config --cflags --libs lua5.1)
+else
+PFLAGS = $(shell pkg-config --cflags --libs lua)
+endif
 
 bz2.so: lbz.c
-	$(CC) $(CFLAGS) $(SOFLAGS) $(CPPFLAGS) $(LDFLAGS) lbz.c -o bz2.so
+	$(CC) $(SOFLAGS) $(PFLAGS) $(CFLAGS) $(LDFLAGS) lbz.c -o bz2.so
 
 clean:
 	-rm -f bz2.so
