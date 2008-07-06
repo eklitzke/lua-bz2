@@ -7,9 +7,5 @@ text = bz2.read(b, 1024)
 while text ~= nil do
 	io.write(text)
 	text = bz2.read(b, 1024)
-	if text == nil then
-		break
-	end
-	io.write(text)
 end
 bz2.read_close(b)
