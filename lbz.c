@@ -20,9 +20,9 @@ typedef struct {
 	/* getline related stuff */
 	char *getline_buf;
 	char *read_buf;
+	char *extra_buf;
 	size_t getline_buf_size;
 	size_t used;
-	char *extra_buf;
 } lbz_state;
 
 /* Forward declarations */
@@ -59,9 +59,10 @@ int lbz_read_open(lua_State *L) {
 	state->f = f;
 	state->flags = 0;
 
-	state->getline_buf = malloc(BUFSIZE);
-	state->extra_buf = malloc(BUFSIZE);
 	state->read_buf = malloc(BUFSIZE);
+	state->extra_buf = state->read_buf;
+	state->getline_buf_size = BUFSIZE;
+	state->getline_buf = malloc(state->getline_buf_size);
 	state->used = 0;
 
 	luaL_getmetatable(L, "LuaBook.bz2");
@@ -75,7 +76,7 @@ int lbz_read_open(lua_State *L) {
 
 /* Binding to libbzip2's BZ2_bzReadOpen method */
 static int lbz_read(lua_State *L) {
-	int bzerror;
+	int bzerror = BZ_OK;
 	int len;
 	lbz_state *state = (lbz_state *) lua_touserdata(L, 1);
 	len = luaL_checkint(L, 2);
@@ -91,7 +92,20 @@ static int lbz_read(lua_State *L) {
 	luaL_buffinit(L, &b);
 
 	char *buf = alloca(len);
-	int ret = BZ2_bzRead(&bzerror, state->bz_stream, buf, len);
+	int offset = 0;
+
+	/* In case this function is being used alongsize the getline method, we
+	 * should use the buffers that getline is using */
+	if (state->used) {
+		offset = (state->used < len) ? state->used : len;
+		memcpy(buf, state->getline_buf, offset);
+		state->extra_buf += offset;
+		state->used -= offset;
+	}
+
+	int to_copy = len - offset;
+	if (to_copy)
+		offset += BZ2_bzRead(&bzerror, state->bz_stream, buf + offset, to_copy);
 
 	if (bzerror != BZ_OK && bzerror != BZ_STREAM_END) {
 		lua_pushnil(L);
@@ -101,7 +115,7 @@ static int lbz_read(lua_State *L) {
 	if (bzerror == BZ_STREAM_END)
 		state->flags |= LBZ_EOS;
 
-	luaL_addlstring(&b, buf, ret);
+	luaL_addlstring(&b, buf, offset);
 	luaL_pushresult(&b);
 	return 1;
 }
@@ -154,8 +168,9 @@ static int lbz_getline_read(lua_State *L, lbz_state *state, size_t offset) {
 		realloc_double(state, offset + distance);
 		memcpy(state->getline_buf + offset, state->read_buf, distance);
 		state->getline_buf[offset+distance] = '\0';
-		state->used = len - (loc - state->read_buf) - 1; /* off by one ? */
-		memcpy(state->extra_buf, loc + 1, state->used);
+
+		state->extra_buf = state->read_buf + distance;
+		state->used = len - distance;
 
 		/* Copy the data into a Lua buffer and return it */
 		luaL_Buffer b;
@@ -164,13 +179,18 @@ static int lbz_getline_read(lua_State *L, lbz_state *state, size_t offset) {
 		luaL_pushresult(&b);
 		return 1;
 	}
-	if (bzerror != BZ_OK)
-		exit(1);
+	if (bzerror == BZ_STREAM_END)
+		state->flags |= LBZ_EOS;
 	return 0;
 }
 
 static int lbz_getline(lua_State *L) {
 	lbz_state *state = (lbz_state *) lua_touserdata(L, 1);
+
+	if (state->flags & LBZ_CLOSED) {
+		lua_pushnil(L);
+		return 1;
+	}
 
 	if (state->used) {
 		char *loc = memchr(state->extra_buf, (int) '\n', state->used);
@@ -182,6 +202,13 @@ static int lbz_getline(lua_State *L) {
 		if (loc == NULL) {
 			realloc_double(state, state->used);
 			memcpy(state->getline_buf, state->extra_buf, state->used);
+			if (state->flags & LBZ_EOS) {
+				luaL_Buffer b;
+				luaL_buffinit(L, &b);
+				luaL_addlstring(&b, state->getline_buf, state->used);
+				luaL_pushresult(&b);
+				return 1;
+			}
 			return lbz_getline_read(L, state, state->used);
 		}
 
@@ -196,7 +223,8 @@ static int lbz_getline(lua_State *L) {
 			int move_amt = state->used - distance;
 			memcpy(state->getline_buf, state->extra_buf, distance);
 			state->getline_buf[distance] = '\0';
-			memmove(state->extra_buf, loc + 1, move_amt);
+
+			state->extra_buf = loc + 1;
 			state->used = move_amt;
 
 			/* Copy the data into a Lua buffer and return it */
