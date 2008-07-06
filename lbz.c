@@ -98,7 +98,7 @@ static int lbz_read(lua_State *L) {
 	 * should use the buffers that getline is using */
 	if (state->used) {
 		offset = (state->used < len) ? state->used : len;
-		memcpy(buf, state->getline_buf, offset);
+		memcpy(buf, state->extra_buf, offset);
 		state->extra_buf += offset;
 		state->used -= offset;
 	}
