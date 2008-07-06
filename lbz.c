@@ -5,10 +5,13 @@
 #include <lauxlib.h>
 #include <lualib.h>
 
+#define LBZ_EOS    0x01 /* end of stream */
+#define LBZ_CLOSED 0x02 /* the file is closed */
+
 typedef struct {
 	BZFILE *bz_stream;
 	FILE *f;
-	int end_of_stream;
+	int flags;
 } lbz_state;
 
 /* Binding to libbzip2's BZ2_bzReadOpen method */
@@ -23,7 +26,7 @@ int lbz_read_open(lua_State *L) {
 	lbz_state *state = (lbz_state *) lua_newuserdata(L, sizeof(lbz_state));
 	state->bz_stream = BZ2_bzReadOpen(&bzerror, f, 0, 0, NULL, 0);
 	state->f = f;
-	state->end_of_stream = 0;
+	state->flags = 0;
 
 	if (bzerror != BZ_OK)
 		lua_pushnil(L);
@@ -37,7 +40,7 @@ int lbz_read(lua_State *L) {
 	lbz_state *state = (lbz_state *) lua_touserdata(L, 1);
 	len = luaL_checkint(L, 2);
 
-	if (state->end_of_stream) {
+	if (state->flags & (LBZ_EOS | LBZ_CLOSED)) {
 		/* The logical end of file has been reached -- there's no more data to
 		 * return, and the user should call the read_close method. */
 		lua_pushnil(L);
@@ -56,7 +59,7 @@ int lbz_read(lua_State *L) {
 	}
 
 	if (bzerror == BZ_STREAM_END)
-		state->end_of_stream = 1;
+		state->flags |= LBZ_EOS;
 
 	luaL_addlstring(&b, buf, ret);
 	luaL_pushresult(&b);
@@ -69,6 +72,7 @@ static int lbz_read_close(lua_State *L) {
 	lbz_state *state = (lbz_state *) lua_touserdata(L, 1);
 	BZ2_bzReadClose(&bzerror, state->bz_stream);
 	fclose(state->f);
+	state->flags |= LBZ_CLOSED;
 	lua_pushnil(L);
 	return 1;
 }
