@@ -14,11 +14,27 @@ typedef struct {
 	int flags;
 } lbz_state;
 
+static int lbz_read_open(lua_State *L);
+static int lbz_read(lua_State *L);
+static int lbz_read_close(lua_State *L);
+
+static const struct luaL_reg bzlib_f [] = {
+	{"open", lbz_read_open},
+	{NULL, NULL} /* Sentinel */
+};
+
+static const struct luaL_reg bzlib_m [] = {
+	{"read", lbz_read},
+	{"close", lbz_read_close},
+	{NULL, NULL} /* Sentinel */
+};
+
 /* Binding to libbzip2's BZ2_bzReadOpen method */
 int lbz_read_open(lua_State *L) {
 	size_t len;
 	const char *fname = lua_tolstring(L, 1, &len);
 	FILE *f = fopen(fname, "rb");
+
 	if (f == NULL)
 		return luaL_error(L, "Failed to fopen %s", fname);
 
@@ -28,13 +44,17 @@ int lbz_read_open(lua_State *L) {
 	state->f = f;
 	state->flags = 0;
 
+	luaL_getmetatable(L, "LuaBook.bz2");
+	lua_setmetatable(L, -2);
+
 	if (bzerror != BZ_OK)
 		lua_pushnil(L);
+
 	return 1;
 }
 
 /* Binding to libbzip2's BZ2_bzReadOpen method */
-int lbz_read(lua_State *L) {
+static int lbz_read(lua_State *L) {
 	int bzerror;
 	int len;
 	lbz_state *state = (lbz_state *) lua_touserdata(L, 1);
@@ -77,14 +97,14 @@ static int lbz_read_close(lua_State *L) {
 	return 1;
 }
 
-static const struct luaL_reg bz2lib [] = {
-	{"read_open", lbz_read_open},
-	{"read", lbz_read},
-	{"read_close", lbz_read_close},
-	{NULL, NULL} /* Sentinel */
-};
-
 int luaopen_bz2(lua_State *L) {
-	luaL_openlib(L, "bz2", bz2lib, 0);
+	luaL_newmetatable(L, "LuaBook.bz2");
+
+	lua_pushstring(L, "__index");
+	lua_pushvalue(L, -2); /* push the metatable */
+	lua_settable(L, -3); /* metatable.__index = metatable */
+
+	luaL_openlib(L, NULL, bzlib_m, 0);
+	luaL_openlib(L, "bz2", bzlib_f, 0);
 	return 1;
 }
