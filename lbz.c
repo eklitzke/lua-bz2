@@ -8,62 +8,65 @@
 typedef struct {
 	BZFILE *bz_stream;
 	FILE *f;
+	int end_of_stream;
 } lbz_state;
 
+/* Binding to libbzip2's BZ2_bzReadOpen method */
 int lbz_read_open(lua_State *L) {
 	size_t len;
 	const char *fname = lua_tolstring(L, 1, &len);
 	FILE *f = fopen(fname, "rb");
-	if (f == NULL) {
-		fprintf(stderr, "failed to fopen file\n");
-		lua_pushnil(L);
-		return 1;
-	}
+	if (f == NULL)
+		return luaL_error(L, "Failed to fopen %s", fname);
 
 	int bzerror;
 	lbz_state *state = (lbz_state *) lua_newuserdata(L, sizeof(lbz_state));
 	state->bz_stream = BZ2_bzReadOpen(&bzerror, f, 0, 0, NULL, 0);
 	state->f = f;
+	state->end_of_stream = 0;
 
-	if (bzerror != BZ_OK) {
-		fprintf(stderr, "encountered error %d in BZ2_bzReadOpen\n", bzerror);
+	if (bzerror != BZ_OK)
 		lua_pushnil(L);
-	}
 	return 1;
 }
 
+/* Binding to libbzip2's BZ2_bzReadOpen method */
 int lbz_read(lua_State *L) {
 	int bzerror;
-
 	int len;
 	lbz_state *state = (lbz_state *) lua_touserdata(L, 1);
 	len = luaL_checkint(L, 2);
 
+	if (state->end_of_stream) {
+		/* The logical end of file has been reached -- there's no more data to
+		 * return, and the user should call the read_close method. */
+		lua_pushnil(L);
+		return 1;
+	}
+
 	luaL_Buffer b;
 	luaL_buffinit(L, &b);
 
-	/* Pendatic note -- alloca isn't ANSI compatible, so this isn't *really*
-	 * portable, but it is provided on Linux and BSD systems (including OS X).
-	 **/
 	char *buf = alloca(len);
 	int ret = BZ2_bzRead(&bzerror, state->bz_stream, buf, len);
 
 	if (bzerror != BZ_OK && bzerror != BZ_STREAM_END) {
-		fprintf(stderr, "uh oh, encountered code %d in BZ2_bzRead\n", bzerror);
 		lua_pushnil(L);
 		return 1;
 	}
+
+	if (bzerror == BZ_STREAM_END)
+		state->end_of_stream = 1;
 
 	luaL_addlstring(&b, buf, ret);
 	luaL_pushresult(&b);
 	return 1;
 }
 
+/* Binding to libbzip2's BZ2_bzReadClose method */
 static int lbz_read_close(lua_State *L) {
 	int bzerror;
-
 	lbz_state *state = (lbz_state *) lua_touserdata(L, 1);
-
 	BZ2_bzReadClose(&bzerror, state->bz_stream);
 	fclose(state->f);
 	lua_pushnil(L);

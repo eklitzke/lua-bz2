@@ -1,5 +1,5 @@
 CC = gcc
-CFLAGS = -Os -g -Wall
+CFLAGS = -Os -Wall
 LDFLAGS = -lbz2 -llua
 SOFLAGS = -fpic -shared
 
