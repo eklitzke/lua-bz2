@@ -1,9 +1,13 @@
 #include <bzlib.h>
 #include <alloca.h>
 #include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 #include <lua.h>
 #include <lauxlib.h>
 #include <lualib.h>
+
+#define BUFSIZE 4096 /* how much data to read at a time */
 
 #define LBZ_EOS    0x01 /* end of stream */
 #define LBZ_CLOSED 0x02 /* the file is closed */
@@ -12,11 +16,21 @@ typedef struct {
 	BZFILE *bz_stream;
 	FILE *f;
 	int flags;
+
+	/* getline related stuff */
+	char *getline_buf;
+	char *read_buf;
+	size_t getline_buf_size;
+	size_t used;
+	char *extra_buf;
 } lbz_state;
 
+/* Forward declarations */
 static int lbz_read_open(lua_State *L);
 static int lbz_read(lua_State *L);
 static int lbz_read_close(lua_State *L);
+static int lbz_getline(lua_State *L);
+static int lbz_getline_read(lua_State *L, lbz_state *state, size_t offset);
 
 static const struct luaL_reg bzlib_f [] = {
 	{"open", lbz_read_open},
@@ -25,6 +39,7 @@ static const struct luaL_reg bzlib_f [] = {
 
 static const struct luaL_reg bzlib_m [] = {
 	{"read", lbz_read},
+	{"getline", lbz_getline},
 	{"close", lbz_read_close},
 	{NULL, NULL} /* Sentinel */
 };
@@ -43,6 +58,11 @@ int lbz_read_open(lua_State *L) {
 	state->bz_stream = BZ2_bzReadOpen(&bzerror, f, 0, 0, NULL, 0);
 	state->f = f;
 	state->flags = 0;
+
+	state->getline_buf = malloc(BUFSIZE);
+	state->extra_buf = malloc(BUFSIZE);
+	state->read_buf = malloc(BUFSIZE);
+	state->used = 0;
 
 	luaL_getmetatable(L, "LuaBook.bz2");
 	lua_setmetatable(L, -2);
@@ -97,13 +117,107 @@ static int lbz_read_close(lua_State *L) {
 	return 1;
 }
 
+/*
+ * GETLINE STUFF
+ * This code is considerably more complicated... if you know of a simpler way
+ * to do it that doesn't sacrifice speed, please let me know.
+ */
+
+/* Allocate space for the getline_buf if necessary. */
+inline void realloc_double(lbz_state *state, size_t target) {
+	if (state->getline_buf_size < target) {
+		size_t newsize = (state->getline_buf_size) << 1;
+		while (newsize < target)
+			newsize <<= 1;
+		state->getline_buf_size = newsize;
+		state->getline_buf = realloc(state->getline_buf, newsize);
+	}
+}
+
+/* This is kind of fucked up */
+static int lbz_getline_read(lua_State *L, lbz_state *state, size_t offset) {
+	int bzerror;
+	int len = BZ2_bzRead(&bzerror, state->bz_stream, state->read_buf, BUFSIZE);
+
+	if ((bzerror == BZ_OK) || (bzerror == BZ_STREAM_END)) {
+		char *loc = memchr(state->read_buf, (int) '\n', len);
+
+		/* If a newline hasn't been found, recursively call while building up
+		 * the buffer */
+		if (loc == NULL) {
+			realloc_double(state, offset + len);
+			memcpy(state->getline_buf + offset, state->read_buf, len);
+			return lbz_getline_read(L, state, offset + len);
+		}
+
+		int distance = loc - state->read_buf + 1;
+		realloc_double(state, offset + distance);
+		memcpy(state->getline_buf + offset, state->read_buf, distance);
+		state->getline_buf[offset+distance] = '\0';
+		state->used = len - (loc - state->read_buf) - 1; /* off by one ? */
+		memcpy(state->extra_buf, loc + 1, state->used);
+
+		/* Copy the data into a Lua buffer and return it */
+		luaL_Buffer b;
+		luaL_buffinit(L, &b);
+		luaL_addlstring(&b, state->getline_buf, offset + distance);
+		luaL_pushresult(&b);
+		return 1;
+	}
+	if (bzerror != BZ_OK)
+		exit(1);
+	return 0;
+}
+
+static int lbz_getline(lua_State *L) {
+	lbz_state *state = (lbz_state *) lua_touserdata(L, 1);
+
+	if (state->used) {
+		char *loc = memchr(state->extra_buf, (int) '\n', state->used);
+
+		/* If we read extra data on the last pass and a newline character isn't
+		 * in that extra data, copy the extra data into the line buffer and
+		 * then call lbz_getline_read to read more data from the bz2 file until
+		 * the newline is found. */
+		if (loc == NULL) {
+			realloc_double(state, state->used);
+			memcpy(state->getline_buf, state->extra_buf, state->used);
+			return lbz_getline_read(L, state, state->used);
+		}
+
+		/* This branch is executed if we had extra data on the last pass and a
+		 * newline could be found in that extra data. This is pretty simple --
+		 * just copy the appropriate data into the buffer and consume that data
+		 * in the extra buffer. */
+		else {
+			int distance = loc - state->extra_buf + 1;
+			realloc_double(state, distance);
+
+			int move_amt = state->used - distance;
+			memcpy(state->getline_buf, state->extra_buf, distance);
+			state->getline_buf[distance] = '\0';
+			memmove(state->extra_buf, loc + 1, move_amt);
+			state->used = move_amt;
+
+			/* Copy the data into a Lua buffer and return it */
+			luaL_Buffer b;
+			luaL_buffinit(L, &b);
+			luaL_addlstring(&b, state->getline_buf, distance);
+			luaL_pushresult(&b);
+			return 1;
+		}
+	}
+
+	/* If there was no extra data from the last pass then we need to call
+	 * lbz_getline_read directly to get more data and find the newline. */
+	return lbz_getline_read(L, state, 0);
+}
+
 int luaopen_bz2(lua_State *L) {
 	luaL_newmetatable(L, "LuaBook.bz2");
-
 	lua_pushstring(L, "__index");
 	lua_pushvalue(L, -2); /* push the metatable */
 	lua_settable(L, -3); /* metatable.__index = metatable */
-
 	luaL_openlib(L, NULL, bzlib_m, 0);
 	luaL_openlib(L, "bz2", bzlib_f, 0);
 	return 1;
