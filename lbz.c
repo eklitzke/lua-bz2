@@ -122,11 +122,15 @@ static int lbz_read(lua_State *L) {
 
 /* Binding to libbzip2's BZ2_bzReadClose method */
 static int lbz_read_close(lua_State *L) {
-	int bzerror;
-	lbz_state *state = (lbz_state *) lua_touserdata(L, 1);
-	BZ2_bzReadClose(&bzerror, state->bz_stream);
-	fclose(state->f);
-	state->flags |= LBZ_CLOSED;
+	if (!(state->flags & LBZ_CLOSED)) {
+		int bzerror;
+		lbz_state *state = (lbz_state *) lua_touserdata(L, 1);
+		BZ2_bzReadClose(&bzerror, state->bz_stream);
+		fclose(state->f);
+		free(state->read_buf);
+		free(state->getline_buf);
+		state->flags |= LBZ_CLOSED;
+	}
 	lua_pushnil(L);
 	return 1;
 }
