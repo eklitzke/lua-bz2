@@ -122,9 +122,9 @@ static int lbz_read(lua_State *L) {
 
 /* Binding to libbzip2's BZ2_bzReadClose method */
 static int lbz_read_close(lua_State *L) {
+	lbz_state *state = (lbz_state *) lua_touserdata(L, 1);
 	if (!(state->flags & LBZ_CLOSED)) {
 		int bzerror;
-		lbz_state *state = (lbz_state *) lua_touserdata(L, 1);
 		BZ2_bzReadClose(&bzerror, state->bz_stream);
 		fclose(state->f);
 		free(state->read_buf);
@@ -245,11 +245,22 @@ static int lbz_getline(lua_State *L) {
 	return lbz_getline_read(L, state, 0);
 }
 
+static int lbz_gc(lua_State *L) {
+	lbz_read_close(L);
+	return 0;
+}
+
 int luaopen_bz2(lua_State *L) {
 	luaL_newmetatable(L, "LuaBook.bz2");
+	int mt = lua_gettop(L);
 	lua_pushstring(L, "__index");
-	lua_pushvalue(L, -2); /* push the metatable */
-	lua_settable(L, -3); /* metatable.__index = metatable */
+	lua_pushvalue(L, mt); /* push the metatable */
+	lua_settable(L, mt); /* metatable.__index = metatable */
+
+	lua_pushstring(L, "__gc");
+	lua_pushcfunction(L, lbz_gc);
+	lua_settable(L, mt);
+
 	luaL_openlib(L, NULL, bzlib_m, 0);
 	luaL_openlib(L, "bz2", bzlib_f, 0);
 	return 1;
