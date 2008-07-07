@@ -152,7 +152,9 @@ inline void realloc_double(lbz_state *state, size_t target) {
 	}
 }
 
-/* This is kind of fucked up */
+/* This is an auxilliary function that lbz_getline calls when it needs to
+ * actually use the BZ2_bzRead method to read more data from the bzipped file.
+ **/
 static int lbz_getline_read(lua_State *L, lbz_state *state, size_t offset) {
 	int bzerror;
 	int len = BZ2_bzRead(&bzerror, state->bz_stream, state->read_buf, BUFSIZE);
@@ -181,11 +183,15 @@ static int lbz_getline_read(lua_State *L, lbz_state *state, size_t offset) {
 		luaL_buffinit(L, &b);
 		luaL_addlstring(&b, state->getline_buf, offset + distance);
 		luaL_pushresult(&b);
+
+		if (bzerror == BZ_STREAM_END)
+			state->flags |= LBZ_EOS;
 		return 1;
 	}
-	if (bzerror == BZ_STREAM_END)
-		state->flags |= LBZ_EOS;
-	return 0;
+
+	/* should not happen */
+	lua_pushnil(L);
+	return 1;
 }
 
 static int lbz_getline(lua_State *L) {
@@ -252,7 +258,7 @@ static int lbz_gc(lua_State *L) {
 
 int luaopen_bz2(lua_State *L) {
 	luaL_newmetatable(L, "LuaBook.bz2");
-	int mt = lua_gettop(L);
+	int mt = lua_gettop(L); /* position of the metatable on the stack */
 	lua_pushstring(L, "__index");
 	lua_pushvalue(L, mt); /* push the metatable */
 	lua_settable(L, mt); /* metatable.__index = metatable */
