@@ -29,6 +29,8 @@
 #define LBZ_EOS    0x01 /* end of stream */
 #define LBZ_CLOSED 0x02 /* the file is closed */
 
+#define LBZ_STATE_META "LuaBook.bz2"
+
 typedef struct {
 	BZFILE *bz_stream;
 	FILE *f;
@@ -43,6 +45,8 @@ typedef struct {
 } lbz_state;
 
 /* Forward declarations */
+static lbz_state *lbz_check_state(lua_State *L, int index);
+
 static int lbz_read_open(lua_State *L);
 static int lbz_read(lua_State *L);
 static int lbz_read_close(lua_State *L);
@@ -60,6 +64,10 @@ static const struct luaL_reg bzlib_m [] = {
 	{"close", lbz_read_close},
 	{NULL, NULL} /* Sentinel */
 };
+
+lbz_state *lbz_check_state(lua_State *L, int index) {
+	return (lbz_state *)luaL_checkudata(L, index, LBZ_STATE_META);
+}
 
 /* Binding to libbzip2's BZ2_bzReadOpen method */
 int lbz_read_open(lua_State *L) {
@@ -82,7 +90,7 @@ int lbz_read_open(lua_State *L) {
 	state->getline_buf = malloc(state->getline_buf_size);
 	state->used = 0;
 
-	luaL_getmetatable(L, "LuaBook.bz2");
+	luaL_getmetatable(L, LBZ_STATE_META);
 	lua_setmetatable(L, -2);
 
 	if (bzerror != BZ_OK)
@@ -95,7 +103,7 @@ int lbz_read_open(lua_State *L) {
 static int lbz_read(lua_State *L) {
 	int bzerror = BZ_OK;
 	int len;
-	lbz_state *state = (lbz_state *) lua_touserdata(L, 1);
+	lbz_state *state = lbz_check_state(L, 1);
 	len = luaL_checkint(L, 2);
 
 	if (state->flags & (LBZ_EOS | LBZ_CLOSED)) {
@@ -139,7 +147,7 @@ static int lbz_read(lua_State *L) {
 
 /* Binding to libbzip2's BZ2_bzReadClose method */
 static int lbz_read_close(lua_State *L) {
-	lbz_state *state = (lbz_state *) lua_touserdata(L, 1);
+	lbz_state *state = lbz_check_state(L, 1);
 	if (!(state->flags & LBZ_CLOSED)) {
 		int bzerror;
 		BZ2_bzReadClose(&bzerror, state->bz_stream);
@@ -212,7 +220,7 @@ static int lbz_getline_read(lua_State *L, lbz_state *state, size_t offset) {
 }
 
 static int lbz_getline(lua_State *L) {
-	lbz_state *state = (lbz_state *) lua_touserdata(L, 1);
+	lbz_state *state = lbz_check_state(L, 1);
 
 	if (state->flags & LBZ_CLOSED) {
 		lua_pushnil(L);
@@ -274,7 +282,7 @@ static int lbz_gc(lua_State *L) {
 }
 
 int luaopen_bz2(lua_State *L) {
-	luaL_newmetatable(L, "LuaBook.bz2");
+	luaL_newmetatable(L, LBZ_STATE_META);
 	int mt = lua_gettop(L); /* position of the metatable on the stack */
 	lua_pushstring(L, "__index");
 	lua_pushvalue(L, mt); /* push the metatable */
