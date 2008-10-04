@@ -9,9 +9,9 @@ CC = gcc-mp-4.4
 endif
 
 ifeq ($(shell pkg-config --exists lua5.1; echo $$?),0)
-PFLAGS = $(shell pkg-config --cflags --libs lua5.1)
+PFLAGS = $(shell pkg-config --cflags lua5.1)
 else
-PFLAGS = $(shell pkg-config --cflags --libs lua)
+PFLAGS = $(shell pkg-config --cflags lua)
 endif
 
 bz2.so: lbz.c
