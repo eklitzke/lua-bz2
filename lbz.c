@@ -283,16 +283,14 @@ static int lbz_gc(lua_State *L) {
 
 int luaopen_bz2(lua_State *L) {
 	luaL_newmetatable(L, LBZ_STATE_META);
-	int mt = lua_gettop(L); /* position of the metatable on the stack */
-	lua_pushstring(L, "__index");
-	lua_pushvalue(L, mt); /* push the metatable */
-	lua_settable(L, mt); /* metatable.__index = metatable */
+	lua_newtable(L);
+	luaL_register(L, NULL, bzlib_m);
+	lua_setfield(L, -2, "__index");
 
-	lua_pushstring(L, "__gc");
 	lua_pushcfunction(L, lbz_gc);
-	lua_settable(L, mt);
+	lua_setfield(L, -2, "__gc");
+	lua_pop(L, 1);
 
-	luaL_openlib(L, NULL, bzlib_m, 0);
-	luaL_openlib(L, "bz2", bzlib_f, 0);
+	luaL_register(L, "bz2", bzlib_f);
 	return 1;
 }
