@@ -45,6 +45,8 @@ static int lbz_read_close(lua_State *L);
 static int lbz_getline(lua_State *L);
 static int lbz_getline_read(lua_State *L, luaL_Buffer *b, lbz_state *state, int keep_eol);
 
+static int lbz_lines(lua_State *L);
+
 static void lbz_buffer_init(lbz_state *state);
 static void lbz_buffer_free(lbz_state *state);
 
@@ -61,6 +63,7 @@ static const struct luaL_reg bzlib_m [] = {
 	{"read", lbz_read},
 	{"getline", lbz_getline},
 	{"close", lbz_read_close},
+	{"lines", lbz_lines},
 	{NULL, NULL} /* Sentinel */
 };
 
@@ -284,6 +287,22 @@ static int lbz_getline(lua_State *L) {
 	/* If there was no extra data from the last pass then we need to call
 	 * lbz_getline_read directly to get more data and find the newline. */
 	return lbz_getline_read(L, &b, state, !skip_eol);
+}
+
+static int lbz_line_iter(lua_State *L) {
+	lua_settop(L, 0);
+	lua_pushvalue(L, lua_upvalueindex(1));
+	lua_pushvalue(L, lua_upvalueindex(2));
+	return lbz_getline(L);
+}
+
+/* (bz):lines(keep_eol) */
+int lbz_lines(lua_State *L) {
+	int skip_eol = !lua_toboolean(L, 2);
+	lua_pushvalue(L, 1);
+	lua_pushboolean(L, skip_eol);
+	lua_pushcclosure(L, lbz_line_iter, 2);
+	return 1;
 }
 
 static int lbz_gc(lua_State *L) {
