@@ -43,7 +43,7 @@ static int lbz_read(lua_State *L);
 static void lbz_perform_close(lbz_state *state, int keep_extra_buf);
 static int lbz_read_close(lua_State *L);
 static int lbz_getline(lua_State *L);
-static int lbz_getline_read(lua_State *L, luaL_Buffer *b, lbz_state *state);
+static int lbz_getline_read(lua_State *L, luaL_Buffer *b, lbz_state *state, int keep_eol);
 
 static void lbz_buffer_init(lbz_state *state);
 static void lbz_buffer_free(lbz_state *state);
@@ -198,8 +198,9 @@ static int lbz_read_close(lua_State *L) {
  * to do it that doesn't sacrifice speed, please let me know.
  */
 
-static int lbz_handle_eol(luaL_Buffer *b, char *buf, size_t buf_len, lbz_state *state, int in_buffer) {
+static int lbz_handle_eol(luaL_Buffer *b, char *buf, size_t buf_len, lbz_state *state, int in_buffer, int keep_eol) {
 	char *eol = memchr(buf, '\n', buf_len);
+	size_t chars_to_return;
 
 	/* If a newline hasn't been found, keep iterating while building up
 	 * the buffer */
@@ -210,11 +211,14 @@ static int lbz_handle_eol(luaL_Buffer *b, char *buf, size_t buf_len, lbz_state *
 			luaL_addlstring(b, buf, buf_len);
 		return 0;
 	}
+	chars_to_return = eol - buf;
 	eol++;
+	if(keep_eol)
+		chars_to_return++;
 	if(in_buffer)
-		luaL_addsize(b, eol - buf);
+		luaL_addsize(b, chars_to_return);
 	else
-		luaL_addlstring(b, buf, eol - buf);
+		luaL_addlstring(b, buf, chars_to_return);
 	/* Save the remaining data end of data - position of beginning */
 	lbz_buffer_append(state, eol, buf_len - (eol - buf));
 	luaL_pushresult(b);
@@ -223,7 +227,7 @@ static int lbz_handle_eol(luaL_Buffer *b, char *buf, size_t buf_len, lbz_state *
 /* This is an auxilliary function that lbz_getline calls when it needs to
  * actually use the BZ2_bzRead method to read more data from the bzipped file.
  **/
-static int lbz_getline_read(lua_State *L, luaL_Buffer *b, lbz_state *state) {
+static int lbz_getline_read(lua_State *L, luaL_Buffer *b, lbz_state *state, int keep_eol) {
 	int bzerror;
 
 	/* The entire 'extra_buf' buffer is needed */
@@ -245,7 +249,7 @@ static int lbz_getline_read(lua_State *L, luaL_Buffer *b, lbz_state *state) {
 			lua_pushstring(L, BZ2_bzerror(state->bz_stream, &bzerror));
 			return 2;
 		}
-		if (!lbz_handle_eol(b, buf, len, state, 1))
+		if (!lbz_handle_eol(b, buf, len, state, 1, keep_eol))
 			continue;
 
 		/* Kill the stream, keep the remaining buffer */
@@ -258,6 +262,7 @@ static int lbz_getline_read(lua_State *L, luaL_Buffer *b, lbz_state *state) {
 
 static int lbz_getline(lua_State *L) {
 	lbz_state *state = lbz_check_state(L, 1);
+	int skip_eol = lua_toboolean(L, 2);
 	luaL_Buffer b;
 
 	if (!state->bz_stream && !state->buf) {
@@ -271,14 +276,14 @@ static int lbz_getline(lua_State *L) {
 		size_t data_size = state->buf_size;
 		lbz_buffer_drain_all(state);
 		/* Drain entire buffer so that remaining data can be appropriately added */
-		if (!lbz_handle_eol(&b, state->buf, data_size, state, 0))
-			return lbz_getline_read(L, &b, state);
+		if (!lbz_handle_eol(&b, state->buf, data_size, state, 0, !skip_eol))
+			return lbz_getline_read(L, &b, state, !skip_eol);
 		return 1;
 	}
 
 	/* If there was no extra data from the last pass then we need to call
 	 * lbz_getline_read directly to get more data and find the newline. */
-	return lbz_getline_read(L, &b, state);
+	return lbz_getline_read(L, &b, state, !skip_eol);
 }
 
 static int lbz_gc(lua_State *L) {
