@@ -18,3 +18,7 @@ while line ~= nil do
 	line = b:getline()
 end
 b:close()
+
+for line in bz2.open("access_log.bz2"):lines() do
+	print(line)
+end
